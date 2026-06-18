@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Offerte-editor &middot; pagina-preview</title>
+<style>
+:root{ --mm:3.7795; }
+*{box-sizing:border-box;}
+html,body{margin:0;}
+body{
+  background:#e7e7ec;
+  font-family:'Open Sans',Arial,sans-serif;
+  color:#2D2D2D;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ---------- editor chrome (stripped from any export) ---------- */
+.ed-bar{
+  position:sticky;top:0;z-index:50;
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:10px 18px;
+  background:rgba(28,28,30,.96);backdrop-filter:blur(6px);
+  color:#fff;
+  font:600 12px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  letter-spacing:.04em;
+}
+.ed-bar .brand{display:flex;align-items:center;gap:9px;color:#fff;text-transform:uppercase;}
+.ed-bar .brand i{width:9px;height:9px;border-radius:2px;background:#F57C20;display:inline-block;}
+.ed-bar .spacer{flex:1;}
+.ed-bar button{
+  font:inherit;letter-spacing:.04em;
+  color:#fff;background:#3a3a3e;border:1px solid #4a4a4e;
+  padding:7px 12px;border-radius:7px;cursor:pointer;transition:.12s;
+}
+.ed-bar button:hover{background:#4a4a4e;}
+.ed-bar button:focus-visible{outline:2px solid #F57C20;outline-offset:2px;}
+.ed-bar button.primary{background:#F57C20;border-color:#F57C20;}
+.ed-bar button.primary:hover{background:#ff8c34;}
+.ed-bar button:disabled{opacity:.4;cursor:not-allowed;}
+.ed-count{color:#bdbdc2;}
+.ed-count b{color:#fff;}
+
+.ed-hint{
+  max-width:794px;margin:18px auto 0;padding:0 8px;
+  font:400 12.5px/1.55 'Open Sans',sans-serif;color:#5c5c63;
+}
+.ed-hint b{color:#2D2D2D;font-weight:600;}
+
+.ed-canvas{
+  padding:22px 12px 80px;
+  display:flex;flex-direction:column;align-items:center;gap:26px;
+}
+
+/* a single A4 sheet */
+.sheet{
+  position:relative;
+  width:794px;height:1123px;
+  background:#fff;
+  box-shadow:0 1px 2px rgba(0,0,0,.08),0 12px 28px rgba(0,0,0,.14);
+  border-radius:2px;
+  padding:57px;            /* 15mm print margin */
+}
+.sheet-body{position:relative;width:680px;height:1009px;overflow:hidden;}
+.sheet-banner{width:680px;line-height:0;font-size:0;}
+.sheet-banner img{display:block;width:100%;height:auto;}
+.flow{padding:14px 40px 0;overflow:hidden;}      /* text inset, matches doc */
+.flow.is-clipped{outline:none;}
+
+/* page number tab + footer mimic */
+.sheet-num{
+  position:absolute;top:0;left:-12px;transform:translateX(-100%);
+  font:600 10px/1 ui-monospace,monospace;letter-spacing:.12em;
+  color:#9a9aa2;white-space:nowrap;padding-top:2px;
+}
+.sheet-foot{
+  position:absolute;left:57px;right:57px;bottom:24px;
+  text-align:center;color:#b4b4ba;
+  font:400 9px/1.4 'Open Sans',sans-serif;
+  pointer-events:none;border-top:1px solid #ededf0;padding-top:6px;
+}
+
+/* break separator drawn between sheets */
+.breakgap{
+  width:794px;display:flex;align-items:center;gap:10px;
+  color:#9a9aa2;font:600 10px/1 ui-monospace,monospace;letter-spacing:.1em;
+  margin:-13px 0;
+}
+.breakgap hr{flex:1;border:0;border-top:1px dashed #c7c7ce;}
+.breakgap.forced{color:#F57C20;}
+.breakgap.forced hr{border-top:1px dashed #f0b27f;}
+
+/* forced-break pill shown atop the unit that starts a manual page */
+.ed-breakmark{
+  display:flex;align-items:center;gap:7px;
+  margin:0 0 10px;padding:4px 8px 4px 9px;
+  background:#fff3e6;border:1px solid #f3c79a;border-radius:6px;
+  color:#b85c12;font:600 10px/1.3 ui-monospace,monospace;letter-spacing:.04em;
+  width:max-content;max-width:100%;user-select:none;
+}
+.ed-breakmark button{
+  all:unset;cursor:pointer;color:#b85c12;font-weight:700;
+  width:14px;height:14px;display:grid;place-items:center;border-radius:3px;
+}
+.ed-breakmark button:hover{background:#f3c79a;}
+
+/* unit selection + edit affordances */
+.ed-unit{position:relative;border-radius:4px;transition:box-shadow .1s;}
+.ed-unit:hover{box-shadow:0 0 0 1px #e3e3e8;}
+.ed-unit.ed-active{box-shadow:0 0 0 2px #F57C20;}
+.ed-unit:focus,.ed-unit :focus{outline:none;}
+.ed-unit.ed-overflow{box-shadow:0 0 0 2px #e0524e;}
+.ed-warn{
+  position:absolute;top:2px;right:2px;z-index:3;
+  background:#e0524e;color:#fff;border-radius:4px;
+  font:600 9px/1 ui-monospace,monospace;padding:4px 6px;letter-spacing:.03em;
+}
+
+@media (max-width:880px){
+  .sheet,.breakgap,.ed-hint{transform-origin:top center;}
+  .sheet-num{left:6px;top:6px;transform:none;background:#fff;padding:2px 5px;border-radius:4px;}
+}
+
+/* ---------- scoped document styling injected at runtime into #docCss ---------- */
+</style>
+<style id="docCss"></style>
+</head>
+<body>
+
+<div class="ed-bar">
+  <span class="brand"><i></i>Learnit &middot; offerte-editor</span>
+  <button id="btnBreak" title="Forceer dat het geselecteerde blok bovenaan een nieuwe pagina begint">Pagina-einde aan/uit</button>
+  <span class="ed-count">pagina's: <b id="pageCount">–</b></span>
+  <span class="spacer"></span>
+  <button id="btnReflow" title="Herbereken de pagina-indeling">Ververs</button>
+  <button id="btnSave" class="primary" title="Download bewerkte offerte als HTML voor n8n / html2pdf">Opslaan als HTML</button>
+</div>
+
+<div class="ed-hint">
+  Klik in een blok om de tekst te bewerken. De vellen tonen <b>waar html2pdf de pagina afbreekt</b>; ontstaat er witruimte onderaan een vel, dan past het volgende blok er niet meer bij.
+  Selecteer een blok en klik <b>Pagina-einde aan/uit</b> om het geforceerd bovenaan een nieuwe pagina te laten beginnen (oranje markering). Dit is een layout-preview — de exacte knip volgt uit je PDF-stap, maar geforceerde einden kloppen altijd.
+</div>
+
+<div class="ed-canvas" id="canvas"></div>
+
+<!-- original file embedded; used both as the content source and as the export template -->
+<script id="orig" type="application/octet-stream">__OFFERTE_B64__</script>
+<script>
+(function(){
+  "use strict";
+  var MM=3.7795;
+  var CONTENT_W=680, CONTENT_H=1009;          // 180mm x 267mm printable area
+  var BANNER_FALLBACK=Math.round(CONTENT_W*0.182);
+  var bannerH=BANNER_FALLBACK, bannerSrc="";
+  var canvas=document.getElementById('canvas');
+  var pageCountEl=document.getElementById('pageCount');
+
+  // ---- decode embedded original ----
+  function b64utf8(b){
+    b=b.replace(/\s+/g,'');
+    return decodeURIComponent(Array.prototype.map.call(atob(b),function(c){
+      return '%'+('00'+c.charCodeAt(0).toString(16)).slice(-2);
+    }).join(''));
+  }
+  var ORIG=b64utf8(document.getElementById('orig').textContent);
+  var origDoc=new DOMParser().parseFromString(ORIG,'text/html');
+
+  // ---- scope the offerte's own CSS so it styles the sheets, not the editor chrome ----
+  function scopeCss(css){
+    css=css.replace(/\/\*[\s\S]*?\*\//g,'');                 // strip comments
+    var impRe=/@import\s+url\([^)]*\)[^;]*;/g;
+    var imports=css.match(impRe)||[]; css=css.replace(impRe,'');
+    css=css.replace(/@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g,'');  // drop @media (print)
+    css=css.replace(/@page[^{]*\{[^{}]*\}/g,'');                       // drop @page
+    var roots=css.match(/:root\s*\{[^{}]*\}/g)||[]; css=css.replace(/:root\s*\{[^{}]*\}/g,'');
+    var rules=[], re=/([^{}]+)\{([^{}]*)\}/g, m;
+    while((m=re.exec(css))){
+      var sel=m[1].trim(), decl=m[2].trim(); if(!sel) continue;
+      var np=[];
+      sel.split(',').map(function(s){return s.trim();}).filter(Boolean).forEach(function(p){
+        if(p==='body') np.push('.doc-scope');
+        else if(p==='*') np.push('.doc-scope *');
+        else if(p.indexOf('.offerte-toolbar')===0||p.indexOf('.offerte-spacer')===0) return;
+        else np.push('.doc-scope '+p);
+      });
+      if(!np.length) continue;
+      var d=decl;
+      if(np.length===1&&np[0]==='.doc-scope') d=d.replace(/background\s*:[^;]+;?/g,'').replace(/margin\s*:[^;]+;?/g,'');
+      rules.push(np.join(',')+'{'+d+'}');
+    }
+    return imports.join('\n')+'\n'+roots.join('\n')+'\n'+rules.join('\n');
+  }
+  var docStyle=origDoc.querySelector('style');
+  document.getElementById('docCss').textContent=scopeCss(docStyle?docStyle.textContent:'');
+
+  // capture banner
+  var bimg=origDoc.querySelector('.banner-wrap img, .sheet-banner img, img');
+  if(bimg){ bannerSrc=bimg.getAttribute('src')||''; }
+
+  // ---- build the editable unit list from the original .offerte ----
+  // The letter lives inside .brief-pagina (banner + page-content). We unwrap the
+  // page-content children into top-level units and remember the banner separately.
+  var offerteSrc=origDoc.querySelector('.offerte');
+  var units=[];                 // live DOM nodes we edit + move between sheets
+  var letterCount=0;            // how many units belong to the .brief-pagina letter
+  var eid=0;
+  function adopt(node){
+    var el=document.importNode(node,true);
+    el.classList.add('ed-unit');
+    el.setAttribute('contenteditable','true');
+    el.setAttribute('spellcheck','false');
+    el.dataset.eid='u'+(eid++);
+    units.push(el);
+    return el;
+  }
+  Array.prototype.forEach.call(offerteSrc.children,function(child){
+    if(child.matches('.brief-pagina')){
+      var pc=child.querySelector('.page-content')||child;
+      Array.prototype.forEach.call(pc.children,function(g){ adopt(g); });
+      letterCount=units.length;          // brief-pagina forces a break AFTER the letter
+    }else{
+      adopt(child);
+    }
+  });
+  if(letterCount>0 && units[letterCount]) units[letterCount].dataset.structBreak='1';
+
+  // returns 'manual' (removable, class-based), 'struct' (automatic), or false
+  function forceBefore(el){
+    if(el.dataset && el.dataset.structBreak) return 'struct';
+    if(el.classList.contains('nieuwe-pagina') ||
+       el.classList.contains('bijlage') ||
+       (el.firstElementChild && el.firstElementChild.classList &&
+        el.firstElementChild.classList.contains('nieuwe-pagina'))) return 'manual';
+    return false;
+  }
+  function toggleBreak(el){
+    if(forceBefore(el)){
+      el.classList.remove('nieuwe-pagina','bijlage');
+      var inner=el.querySelector(':scope > .nieuwe-pagina');
+      if(inner) inner.classList.remove('nieuwe-pagina');
+    }else{
+      el.classList.add('nieuwe-pagina');
+    }
+  }
+
+  // ---- caret + scroll preservation across re-pagination ----
+  function saveCaret(){
+    var s=window.getSelection();
+    if(!s||!s.rangeCount) return null;
+    var n=s.anchorNode, el=n&&n.nodeType===3?n.parentElement:n;
+    while(el&&!(el.dataset&&el.dataset.eid)) el=el.parentElement;
+    if(!el) return null;
+    var r=s.getRangeAt(0).cloneRange();
+    var pre=document.createRange(); pre.selectNodeContents(el); pre.setEnd(r.endContainer,r.endOffset);
+    return {eid:el.dataset.eid, off:pre.toString().length};
+  }
+  function restoreCaret(c){
+    if(!c) return;
+    var el=document.querySelector('[data-eid="'+c.eid+'"]'); if(!el) return;
+    var w=document.createTreeWalker(el,NodeFilter.SHOW_TEXT,null), rem=c.off, node, last=null;
+    while((node=w.nextNode())){
+      last=node;
+      if(node.length>=rem){ place(node,rem); return; }
+      rem-=node.length;
+    }
+    if(last) place(last,last.length); else place(el,0);
+    function place(target,o){
+      try{ var r=document.createRange(); r.setStart(target,o); r.collapse(true);
+        var s=window.getSelection(); s.removeAllRanges(); s.addRange(r); el.focus({preventScroll:true});
+      }catch(e){}
+    }
+  }
+
+  // ---- the pagination engine ----
+  var activeEid=null;
+  function newSheet(num,first){
+    var sheet=document.createElement('div'); sheet.className='sheet';
+    var nm=document.createElement('span'); nm.className='sheet-num'; nm.textContent='PAGINA '+num;
+    var body=document.createElement('div'); body.className='sheet-body';
+    if(first&&bannerSrc){
+      var bw=document.createElement('div'); bw.className='sheet-banner';
+      var im=document.createElement('img'); im.src=bannerSrc; im.alt='Learnit Training';
+      bw.appendChild(im); body.appendChild(bw);
+    }
+    var flow=document.createElement('div'); flow.className='flow doc-scope';
+    flow.style.height=(CONTENT_H-(first?bannerH:0))+'px';
+    body.appendChild(flow);
+    var foot=document.createElement('div'); foot.className='sheet-foot';
+    foot.innerHTML='Learnit Training | Piet Heinkade 1, 1019 BR Amsterdam | 020 636 9179 | info@learnit.nl | www.learnit.nl<br>Pagina '+num+' / __TOTAL__';
+    sheet.appendChild(nm); sheet.appendChild(body); sheet.appendChild(foot);
+    return {sheet:sheet,flow:flow,foot:foot,first:first};
+  }
+
+  function paginate(){
+    var caret=saveCaret(), sy=window.scrollY;
+    canvas.textContent='';
+    var pages=[], pageNum=0, cur=null;
+    function push(kind){   // kind: 'overflow' | 'manual' | 'struct'
+      if(cur){
+        var manual=kind==='manual';
+        var gap=document.createElement('div');
+        gap.className='breakgap'+(manual?' forced':'');
+        gap.innerHTML='<hr><span>'+(manual?'handmatig pagina-einde':'pagina-einde')+'</span><hr>';
+        canvas.appendChild(gap);
+      }
+      pageNum++; cur=newSheet(pageNum,pageNum===1); pages.push(cur); canvas.appendChild(cur.sheet);
+    }
+    push('overflow');
+    units.forEach(function(u){
+      u.classList.remove('ed-overflow');
+      var w=u.querySelector(':scope > .ed-warn'); if(w) w.remove();
+      var fb=forceBefore(u);
+      if(fb && cur.flow.childElementCount>0) push(fb);
+      if(fb==='manual'){ // removable pill atop the manual page
+        var mk=document.createElement('div'); mk.className='ed-breakmark'; mk.setAttribute('contenteditable','false');
+        mk.innerHTML='&#9650; nieuwe pagina <button title="Pagina-einde verwijderen" data-x="'+u.dataset.eid+'">&times;</button>';
+        cur.flow.appendChild(mk);
+      }
+      cur.flow.appendChild(u);
+      if(cur.flow.scrollHeight>cur.flow.clientHeight+2 && cur.flow.childElementCount>1){
+        cur.flow.removeChild(u);
+        var stray=cur.flow.querySelector(':scope > .ed-breakmark:last-child'); if(stray) stray.remove();
+        push('overflow');
+        cur.flow.appendChild(u);
+      }
+      if(cur.flow.scrollHeight>cur.flow.clientHeight+2 && cur.flow.childElementCount===1){
+        u.classList.add('ed-overflow');
+        var warn=document.createElement('div'); warn.className='ed-warn';
+        warn.setAttribute('contenteditable','false');
+        warn.textContent='past niet op 1 pagina';
+        u.appendChild(warn);
+      }
+    });
+    // fill totals + restore active outline
+    var total=pages.length;
+    pageCountEl.textContent=total;
+    canvas.querySelectorAll('.sheet-foot').forEach(function(f){ f.innerHTML=f.innerHTML.replace('__TOTAL__',total); });
+    if(activeEid){ var a=document.querySelector('[data-eid="'+activeEid+'"]'); if(a) a.classList.add('ed-active'); }
+    window.scrollTo(0,sy);
+    restoreCaret(caret);
+  }
+
+  // ---- interactions ----
+  var t=null;
+  canvas.addEventListener('input',function(){ clearTimeout(t); t=setTimeout(paginate,300); });
+  canvas.addEventListener('click',function(e){
+    var x=e.target.closest('[data-x]');
+    if(x){ var el=document.querySelector('[data-eid="'+x.getAttribute('data-x')+'"]'); if(el){toggleBreak(el); paginate();} return; }
+    var u=e.target.closest('.ed-unit');
+    document.querySelectorAll('.ed-unit.ed-active').forEach(function(n){n.classList.remove('ed-active');});
+    if(u){ u.classList.add('ed-active'); activeEid=u.dataset.eid; }
+    else activeEid=null;
+  });
+  canvas.addEventListener('focusin',function(e){
+    var u=e.target.closest('.ed-unit');
+    if(u){ document.querySelectorAll('.ed-unit.ed-active').forEach(function(n){n.classList.remove('ed-active');});
+      u.classList.add('ed-active'); activeEid=u.dataset.eid; }
+  });
+  document.getElementById('btnBreak').addEventListener('click',function(){
+    if(!activeEid) return;
+    var el=document.querySelector('[data-eid="'+activeEid+'"]'); if(!el) return;
+    toggleBreak(el); paginate();
+  });
+  document.getElementById('btnReflow').addEventListener('click',paginate);
+
+  // ---- export: rebuild the ORIGINAL file format with the edits ----
+  function cleanClone(u){
+    var c=u.cloneNode(true);
+    c.removeAttribute('contenteditable'); c.removeAttribute('spellcheck');
+    c.removeAttribute('data-eid'); c.removeAttribute('tabindex'); c.removeAttribute('data-struct-break');
+    c.classList.remove('ed-unit','ed-active','ed-overflow');
+    if(!c.getAttribute('class')) c.removeAttribute('class');
+    c.querySelectorAll('.ed-warn,.ed-breakmark').forEach(function(n){n.remove();});
+    c.querySelectorAll('[contenteditable]').forEach(function(n){n.removeAttribute('contenteditable');});
+    c.querySelectorAll('[data-eid]').forEach(function(n){n.removeAttribute('data-eid');});
+    return c;
+  }
+  document.getElementById('btnSave').addEventListener('click',function(){
+    var doc=new DOMParser().parseFromString(ORIG,'text/html');
+    var off=doc.querySelector('.offerte');
+    var briefSrc=off.querySelector('.brief-pagina');
+    var n=letterCount>0?letterCount:0;
+    var newOff=doc.createElement('div'); newOff.className='offerte';
+    if(briefSrc && n>0){
+      var brief=briefSrc.cloneNode(true);
+      var pc=brief.querySelector('.page-content'); if(pc) pc.innerHTML='';
+      for(var i=0;i<n;i++){ (pc||brief).appendChild(cleanClone(units[i])); }
+      newOff.appendChild(brief);
+    }
+    for(var j=n;j<units.length;j++){
+      var c=cleanClone(units[j]);
+      if(c.getAttribute && c.getAttribute('data-struct-break')!==null) c.removeAttribute('data-struct-break');
+      newOff.appendChild(c);
+    }
+    off.parentNode.replaceChild(newOff,off);
+    var html=doc.documentElement.outerHTML;
+    var txt=doc.body?doc.body.textContent:'';
+    var num=(txt.match(/LT-\d{8}-\d{6}/)||[])[0]||'';
+    var cEl=doc.querySelector('.adresblok .links strong, .adresblok .links b');
+    var comp=cEl?cEl.textContent.trim():'';
+    var fname=('Offerte'+(num?'-'+num:'')+(comp?'-'+comp:'')).replace(/[\\/:*?"<>|]+/g,' ').trim()+'.html';
+    var blob=new Blob([html],{type:'text/html'});
+    var a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+    a.download=fname;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  });
+
+  // ---- boot: measure banner, then paginate (and again after fonts load) ----
+  function boot(){ paginate(); if(document.fonts&&document.fonts.ready) document.fonts.ready.then(paginate); }
+  if(bannerSrc){
+    var pre=new Image();
+    pre.onload=function(){ if(pre.naturalWidth) bannerH=Math.round(CONTENT_W*(pre.naturalHeight/pre.naturalWidth)); boot(); };
+    pre.onerror=boot; pre.src=bannerSrc;
+  }else boot();
+})();
+</script>
+</body>
+</html>
