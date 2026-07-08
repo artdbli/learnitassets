@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Offerte-editor v2 &middot; TipTap</title>
+<style>
+*{box-sizing:border-box;}
+html,body{margin:0;}
+body{
+  background:#e7e7ec;
+  font-family:'Open Sans',Arial,sans-serif;
+  color:#2D2D2D;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ---------- editor chrome (nooit in de export) ---------- */
+.ed-bar{
+  position:sticky;top:0;z-index:50;
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  padding:9px 16px;
+  background:rgba(28,28,30,.97);backdrop-filter:blur(6px);
+  color:#fff;
+  font:600 12px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  letter-spacing:.03em;
+}
+.ed-bar .brand{display:flex;align-items:center;gap:9px;color:#fff;text-transform:uppercase;margin-right:8px;}
+.ed-bar .brand i{width:9px;height:9px;border-radius:2px;background:#F57C20;display:inline-block;}
+.ed-bar .spacer{flex:1;}
+.ed-bar .sep{width:1px;height:22px;background:#48484d;margin:0 4px;}
+.ed-bar button{
+  font:inherit;letter-spacing:.03em;
+  color:#fff;background:#3a3a3e;border:1px solid #4a4a4e;
+  padding:6px 10px;border-radius:7px;cursor:pointer;transition:.12s;
+  min-width:32px;
+}
+.ed-bar button:hover{background:#4a4a4e;}
+.ed-bar button:focus-visible{outline:2px solid #F57C20;outline-offset:2px;}
+.ed-bar button.primary{background:#F57C20;border-color:#F57C20;}
+.ed-bar button.primary:hover{background:#ff8c34;}
+.ed-bar button.on{background:#F57C20;border-color:#F57C20;}
+.ed-bar button:disabled{opacity:.35;cursor:not-allowed;}
+.ed-count{color:#bdbdc2;margin:0 4px;}
+.ed-count b{color:#fff;}
+
+/* blokken-dropdown */
+.ed-menu{position:relative;}
+.ed-menu .panel{
+  position:absolute;top:calc(100% + 6px);left:0;z-index:60;
+  min-width:280px;
+  background:#26262a;border:1px solid #4a4a4e;border-radius:9px;
+  padding:6px;display:none;box-shadow:0 10px 30px rgba(0,0,0,.4);
+}
+.ed-menu.open .panel{display:block;}
+.ed-menu .panel button{
+  display:block;width:100%;text-align:left;border:0;background:transparent;
+  padding:8px 10px;border-radius:6px;font-weight:600;
+}
+.ed-menu .panel button small{display:block;font-weight:400;color:#a8a8ae;margin-top:2px;letter-spacing:0;}
+.ed-menu .panel button:hover{background:#3a3a3e;}
+
+.ed-hint{
+  max-width:794px;margin:16px auto 0;padding:0 8px;
+  font:400 12.5px/1.55 'Open Sans',sans-serif;color:#5c5c63;
+}
+.ed-hint b{color:#2D2D2D;font-weight:600;}
+
+/* ---------- doorlopend A4-vel met paginamarkeringen ---------- */
+.ed-canvas{padding:20px 12px 90px;display:flex;justify-content:center;}
+.pagecol{
+  position:relative;width:794px;background:#fff;border-radius:2px;
+  box-shadow:0 1px 2px rgba(0,0,0,.08),0 12px 28px rgba(0,0,0,.14);
+  padding:57px;  /* 15mm printmarge */
+}
+.doc-scope{width:680px;}
+.offerte-mount .ProseMirror{
+  outline:none;min-height:400px;padding:0 40px 40px;
+}
+.offerte-mount .ProseMirror>*{position:relative;}
+
+/* paginamarkering-overlay */
+.pb-marks{position:absolute;inset:0;pointer-events:none;z-index:5;}
+.pb-line{
+  position:absolute;left:14px;right:14px;height:0;
+  border-top:1px dashed #c7c7ce;
+}
+.pb-line span{
+  position:absolute;left:-8px;top:-7px;transform:translateX(-100%);
+  font:600 10px/1 ui-monospace,monospace;letter-spacing:.1em;color:#9a9aa2;
+  background:#fff;padding:2px 4px;white-space:nowrap;
+}
+.pb-line.forced{border-top-color:#f0b27f;}
+.pb-line.forced span{color:#F57C20;}
+
+/* handmatig pagina-einde (pageBreak node) in de editor */
+.ProseMirror div.nieuwe-pagina[data-pb]{
+  display:flex;align-items:center;gap:7px;
+  margin:12px 0;padding:4px 9px;
+  background:#fff3e6;border:1px dashed #f3c79a;border-radius:6px;
+  color:#b85c12;font:600 10px/1.3 ui-monospace,monospace;letter-spacing:.04em;
+  user-select:none;cursor:default;
+}
+.ProseMirror div.nieuwe-pagina[data-pb]::before{content:"▲ nieuwe pagina — selecteer en klik 'Pagina-einde' of Backspace om te verwijderen";}
+.ProseMirror div.nieuwe-pagina[data-pb].ProseMirror-selectednode{outline:2px solid #F57C20;}
+
+/* blok-affordances */
+.ProseMirror>*:hover{box-shadow:0 0 0 1px #ececf0;border-radius:4px;}
+.ProseMirror .ed-overflow{box-shadow:0 0 0 2px #e0524e !important;border-radius:4px;}
+.raw-wrap{border-radius:4px;}
+.raw-wrap:hover{box-shadow:0 0 0 1px #e3e3e8;}
+.raw-wrap.ed-active,.ProseMirror-selectednode .raw-wrap,.raw-wrap:focus-within{box-shadow:0 0 0 2px #F57C20;}
+.raw-wrap [contenteditable]{outline:none;}
+.ProseMirror .ProseMirror-selectednode{box-shadow:0 0 0 2px #F57C20;border-radius:4px;}
+
+@media (max-width:880px){
+  .pagecol{width:100%;padding:24px 14px;}
+  .doc-scope{width:100%;}
+}
+</style>
+<style id="docCss"></style>
+</head>
+<body>
+
+<div class="ed-bar">
+  <span class="brand"><i></i>Learnit &middot; offerte-editor</span>
+  <button id="bUndo" title="Ongedaan maken (Ctrl+Z)">&#8630;</button>
+  <button id="bRedo" title="Opnieuw (Ctrl+Y / Ctrl+Shift+Z)">&#8631;</button>
+  <span class="sep"></span>
+  <button id="bBold" title="Vet (Ctrl+B)"><b>B</b></button>
+  <button id="bItal" title="Cursief (Ctrl+I)"><i>I</i></button>
+  <span class="sep"></span>
+  <button id="bP"  title="Gewone alinea">&para;</button>
+  <button id="bH2" title="Kop (oranje)">H2</button>
+  <button id="bH3" title="Subkop">H3</button>
+  <span class="sep"></span>
+  <button id="bUl" title="Opsomming (bullets)">&bull; lijst</button>
+  <button id="bOl" title="Genummerde lijst">1. lijst</button>
+  <span class="sep"></span>
+  <button id="bBreak" title="Pagina-einde invoegen of verwijderen op de cursorpositie">Pagina-einde</button>
+  <div class="ed-menu" id="menuBlocks">
+    <button id="bBlocks" title="Voorgestileerd onderdeel invoegen">+ Onderdeel</button>
+    <div class="panel">
+      <button data-blk="programma"><span>Programma-onderdeel (gestapeld)</span><small>Kop + doel + relevantie + werkvormen onder elkaar — voor uitgebreide/meerdaagse programma's</small></button>
+      <button data-blk="sector"><span>Sector-ervaring</span><small>Oranje kader over onze ervaring in de sector van de klant</small></button>
+      <button data-blk="trainer"><span>Trainersprofiel</span><small>Oranje kader met naam en achtergrond van de trainer</small></button>
+      <button data-blk="referentie"><span>Referentie</span><small>Citaat-kaart in de bestaande referentie-opmaak</small></button>
+      <button data-blk="kader"><span>Accent-kader (klein)</span><small>Licht kader voor een korte toelichting of noot</small></button>
+    </div>
+  </div>
+  <span class="spacer"></span>
+  <span class="ed-count">pagina's: <b id="pageCount">–</b></span>
+  <button id="bReflow" title="Herbereken de pagina-indeling">Ververs</button>
+  <button id="bPrint" title="Print de offerte of sla op als PDF via de printdialoog">Print / PDF</button>
+  <button id="bSave" class="primary" title="Download bewerkte offerte als HTML voor n8n / html2pdf">Opslaan als HTML</button>
+</div>
+
+<div class="ed-hint">
+  Klik in de tekst en typ; <b>Ctrl+Z</b> maakt elke wijziging ongedaan. Gebruik de werkbalk voor opmaak en <b>+ Onderdeel</b> voor voorgestileerde blokken.
+  De stippellijnen tonen <b>waar html2pdf de pagina ongeveer afbreekt</b>; oranje lijnen zijn handmatige pagina-eindes. Plakken vanuit Word of Gmail wordt automatisch opgeschoond.
+</div>
+
+<div class="ed-canvas">
+  <div class="pagecol" id="pagecol">
+    <div class="doc-scope offerte-mount"><div class="offerte" id="editorHost"></div></div>
+    <div class="pb-marks" id="pbMarks"></div>
+  </div>
+</div>
+
+<!-- origineel bestand, ingebed door n8n; bron én export-sjabloon -->
+<script id="orig" type="application/octet-stream">__OFFERTE_B64__</script>
+
+<script type="module">
+import { Editor, Node, Mark, Extension } from 'https://esm.sh/@tiptap/core@2.27.2';
+import StarterKit from 'https://esm.sh/@tiptap/starter-kit@2.27.2';
+
+/* alleen veilige inline-styles doorlaten; Word/Gmail-plakrommel (mso-*, font-family, enz.) wordt gestript */
+const STYLE_OK=['color','font-size','font-weight','font-style','text-decoration','background','background-color','margin-top','margin-bottom','text-align'];
+function cleanStyle(v){
+  if(!v) return null;
+  const kept=v.split(';').map(s=>s.trim()).filter(Boolean).filter(d=>{
+    const prop=d.split(':')[0].trim().toLowerCase();
+    return STYLE_OK.indexOf(prop)>-1;
+  });
+  return kept.length?kept.join(';'):null;
+}
+
+/* ---------------- origineel decoderen ---------------- */
+function b64utf8(b){
+  b=b.replace(/\s+/g,'');
+  return decodeURIComponent(Array.prototype.map.call(atob(b),function(c){
+    return '%'+('00'+c.charCodeAt(0).toString(16)).slice(-2);
+  }).join(''));
+}
+const ORIG=b64utf8(document.getElementById('orig').textContent);
+const origDoc=new DOMParser().parseFromString(ORIG,'text/html');
+
+/* ---------------- offerte-CSS scopen naar .doc-scope ---------------- */
+function scopeCss(css){
+  css=css.replace(/\/\*[\s\S]*?\*\//g,'');
+  const impRe=/@import\s+url\([^)]*\)[^;]*;/g;
+  const imports=css.match(impRe)||[]; css=css.replace(impRe,'');
+  css=css.replace(/@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g,'');
+  css=css.replace(/@page[^{]*\{[^{}]*\}/g,'');
+  const roots=css.match(/:root\s*\{[^{}]*\}/g)||[]; css=css.replace(/:root\s*\{[^{}]*\}/g,'');
+  const rules=[]; const re=/([^{}]+)\{([^{}]*)\}/g; let m;
+  while((m=re.exec(css))){
+    const sel=m[1].trim(), decl=m[2].trim(); if(!sel) continue;
+    const np=[];
+    sel.split(',').map(s=>s.trim()).filter(Boolean).forEach(p=>{
+      if(p==='body') np.push('.doc-scope');
+      else if(p==='*') np.push('.doc-scope *');
+      else if(p.indexOf('.offerte-toolbar')===0||p.indexOf('.offerte-spacer')===0) return;
+      else np.push('.doc-scope '+p);
+    });
+    if(!np.length) continue;
+    let d=decl;
+    if(np.length===1&&np[0]==='.doc-scope') d=d.replace(/background\s*:[^;]+;?/g,'').replace(/margin\s*:[^;]+;?/g,'');
+    rules.push(np.join(',')+'{'+d+'}');
+  }
+  return imports.join('\n')+'\n'+roots.join('\n')+'\n'+rules.join('\n');
+}
+const docStyle=origDoc.querySelector('style');
+document.getElementById('docCss').textContent=scopeCss(docStyle?docStyle.textContent:'');
+
+/* ---------------- bron voorbereiden ---------------- */
+const offerteSrc=origDoc.querySelector('.offerte');
+if(!offerteSrc){ document.body.insertAdjacentHTML('afterbegin','<p style="padding:20px;color:#b00">Geen .offerte gevonden in het ingebedde bestand.</p>'); throw new Error('no .offerte'); }
+
+// banner apart houden: in de editor tonen we hem niet-bewerkbaar, bij export zetten we hem terug
+const srcClone=offerteSrc.cloneNode(true);
+const bannerEl=srcClone.querySelector('.brief-pagina .banner-wrap');
+const bannerHTML=bannerEl?bannerEl.outerHTML:'';
+if(bannerEl) bannerEl.remove();
+
+// class-gebaseerde pagina-eindes omzetten naar losse markers vóór het element
+srcClone.querySelectorAll('.nieuwe-pagina,.bijlage').forEach(el=>{
+  if(el.matches('div') && !el.textContent.trim() && !el.children.length) { el.setAttribute('data-pb','1'); return; }
+  const mk=srcClone.ownerDocument.createElement('div');
+  mk.className='nieuwe-pagina'; mk.setAttribute('data-pb','1');
+  el.parentNode.insertBefore(mk,el);
+  el.classList.remove('nieuwe-pagina','bijlage');
+  if(!el.getAttribute('class')) el.removeAttribute('class');
+});
+
+/* ---------------- TipTap-schema ---------------- */
+
+// style/class op standaardblokken bewaren (o.a. inline styles in de briefondertekening)
+const KeepAttrs=Extension.create({
+  name:'keepAttrs',
+  addGlobalAttributes(){
+    return [{
+      types:['paragraph','heading','bulletList','orderedList','listItem'],
+      attributes:{
+        style:{default:null,parseHTML:el=>cleanStyle(el.getAttribute('style')),renderHTML:a=>a.style?{style:a.style}:{}},
+        class:{default:null,parseHTML:el=>el.getAttribute('class'),renderHTML:a=>a.class?{class:a.class}:{}}
+      }
+    }];
+  }
+});
+
+// generieke span-mark zodat gekleurde/kleine spans niet gestript worden
+const StyledSpan=Mark.create({
+  name:'styledSpan',
+  parseHTML(){ return [{tag:'span',getAttrs:el=>(cleanStyle(el.getAttribute('style'))||el.getAttribute('class'))?null:false}]; },
+  addAttributes(){ return {
+    style:{default:null,parseHTML:el=>cleanStyle(el.getAttribute('style')),renderHTML:a=>a.style?{style:a.style}:{}},
+    class:{default:null,parseHTML:el=>el.getAttribute('class'),renderHTML:a=>a.class?{class:a.class}:{}}
+  };},
+  renderHTML({HTMLAttributes}){ return ['span',HTMLAttributes,0]; }
+});
+
+// briefpagina: banner (vast) + bewerkbare page-content; dwingt pagina-einde erna af
+const BriefPagina=Node.create({
+  name:'briefPagina', group:'block', content:'block+', defining:true, isolating:true,
+  parseHTML(){ return [{tag:'div.brief-pagina',contentElement:'.page-content',priority:200}]; },
+  renderHTML(){ return ['div',{class:'brief-pagina page-met-banner'},['div',{class:'page-content'},0]]; },
+  addNodeView(){
+    return ()=>{
+      const dom=document.createElement('div'); dom.className='brief-pagina page-met-banner';
+      if(bannerHTML){
+        const b=document.createElement('div'); b.innerHTML=bannerHTML;
+        const bw=b.firstElementChild; bw.setAttribute('contenteditable','false');
+        dom.appendChild(bw);
+      }
+      const contentDOM=document.createElement('div'); contentDOM.className='page-content';
+      dom.appendChild(contentDOM);
+      return {dom,contentDOM};
+    };
+  }
+});
+
+// containerblokken met vaste class (kaders, bijeen, reviews-blok, onbekende wrappers)
+const KNOWN_BOXES=['highlight-box','highlight-box-klein','bijeen','reviews-blok','optie-blok'];
+const ClassBox=Node.create({
+  name:'classBox', group:'block', content:'block+', defining:true,
+  addAttributes(){ return { klass:{default:'highlight-box'} }; },
+  parseHTML(){
+    const rules=KNOWN_BOXES.map(k=>({tag:'div.'+k,priority:120,getAttrs:el=>({klass:el.className})}));
+    rules.push({tag:'div[class]',priority:40,getAttrs:el=>{
+      if(!el.className||el.getAttribute('data-pb')) return false;
+      if(!el.children.length && !el.textContent.trim()) return false;
+      return {klass:el.className};
+    }});
+    return rules;
+  },
+  renderHTML({node}){ return ['div',{class:node.attrs.klass},0]; }
+});
+
+// review-onderdelen (referentie-opmaak) — inhoud gewoon bewerkbaar
+const ReviewQuote=Node.create({
+  name:'reviewQuote', group:'block', content:'inline*',
+  parseHTML(){ return [{tag:'div.review-quote',priority:150}]; },
+  renderHTML(){ return ['div',{class:'review-quote'},0]; }
+});
+const ReviewBron=Node.create({
+  name:'reviewBron', group:'block', content:'inline*',
+  parseHTML(){ return [{tag:'div.review-bron',priority:150}]; },
+  renderHTML(){ return ['div',{class:'review-bron'},0]; }
+});
+const ReviewCard=Node.create({
+  name:'reviewCard', group:'block', content:'block+', defining:true,
+  parseHTML(){ return [{tag:'div.review-card',priority:150}]; },
+  renderHTML(){ return ['div',{class:'review-card'},0]; }
+});
+
+// handmatig pagina-einde
+const PageBreak=Node.create({
+  name:'pageBreak', group:'block', atom:true, selectable:true,
+  parseHTML(){ return [{tag:'div.nieuwe-pagina',priority:300}]; },
+  renderHTML(){ return ['div',{class:'nieuwe-pagina','data-pb':'1'}]; }
+});
+
+// complexe vaste blokken (tabellen, adresblok, scoreregels): bewerkbaar eiland, structuur beschermd
+const RAW_SELECTORS=['div.adresblok','table.metadata','hr.meta-lijn','table.kostentabel','table.handtekening-tabel','div.review-score','div.review-score-label','div.review-sterren','div.banner-wrap'];
+const RawBlock=Node.create({
+  name:'rawBlock', group:'block', atom:true, selectable:true,
+  addAttributes(){ return { html:{default:''} }; },
+  parseHTML(){ return RAW_SELECTORS.map(tag=>({tag,priority:250,getAttrs:el=>({html:el.outerHTML})})); },
+  renderHTML({node}){
+    const tpl=document.createElement('template');
+    tpl.innerHTML=(node.attrs.html||'<div></div>').trim();
+    return tpl.content.firstElementChild||document.createElement('div');
+  },
+  addNodeView(){
+    return ({node,editor,getPos})=>{
+      let current=node, typing=false, t=null;
+      const dom=document.createElement('div'); dom.className='raw-wrap';
+      dom.innerHTML=current.attrs.html;
+      dom.setAttribute('contenteditable','true');
+      dom.setAttribute('spellcheck','false');
+      const commit=()=>{
+        const pos=getPos();
+        if(typeof pos!=='number') return;
+        const html=dom.innerHTML;
+        if(html===current.attrs.html){ typing=false; return; }
+        const tr=editor.view.state.tr.setNodeMarkup(pos,undefined,{...current.attrs,html});
+        editor.view.dispatch(tr);
+        typing=false;
+      };
+      dom.addEventListener('input',()=>{ typing=true; clearTimeout(t); t=setTimeout(commit,400); });
+      dom.addEventListener('blur',()=>{ clearTimeout(t); commit(); },true);
+      return {
+        dom,
+        update(n){
+          if(n.type.name!=='rawBlock') return false;
+          if(!typing && n.attrs.html!==dom.innerHTML) dom.innerHTML=n.attrs.html;
+          current=n; return true;
+        },
+        stopEvent(){ return true; },
+        ignoreMutation(){ return true; }
+      };
+    };
+  }
+});
+
+/* ---------------- editor starten ---------------- */
+const editor=new Editor({
+  element:document.getElementById('editorHost'),
+  extensions:[
+    StarterKit.configure({heading:{levels:[1,2,3]},horizontalRule:false,blockquote:false,codeBlock:false,code:false}),
+    KeepAttrs,StyledSpan,BriefPagina,ClassBox,ReviewCard,ReviewQuote,ReviewBron,PageBreak,RawBlock
+  ],
+  content:srcClone.innerHTML,
+  onUpdate(){ scheduleMeasure(); },
+  onSelectionUpdate(){ syncToolbar(); }
+});
+
+/* ---------------- werkbalk ---------------- */
+const $=id=>document.getElementById(id);
+const run=fn=>()=>{ fn(); editor.commands.focus(); };
+$('bUndo').addEventListener('click',run(()=>editor.chain().undo().run()));
+$('bRedo').addEventListener('click',run(()=>editor.chain().redo().run()));
+$('bBold').addEventListener('click',run(()=>editor.chain().toggleBold().run()));
+$('bItal').addEventListener('click',run(()=>editor.chain().toggleItalic().run()));
+$('bP').addEventListener('click',run(()=>editor.chain().setParagraph().run()));
+$('bH2').addEventListener('click',run(()=>editor.chain().toggleHeading({level:2}).run()));
+$('bH3').addEventListener('click',run(()=>editor.chain().toggleHeading({level:3}).run()));
+$('bUl').addEventListener('click',run(()=>editor.chain().toggleBulletList().run()));
+$('bOl').addEventListener('click',run(()=>editor.chain().toggleOrderedList().run()));
+$('bReflow').addEventListener('click',()=>measure());
+$('bBreak').addEventListener('click',run(()=>{
+  const {state}=editor; const sel=state.selection;
+  const node=sel.node&&sel.node.type&&sel.node.type.name==='pageBreak'?sel.node:null;
+  if(node){ editor.chain().deleteSelection().run(); }
+  else{ editor.chain().insertContent({type:'pageBreak'}).run(); }
+}));
+
+function syncToolbar(){
+  $('bBold').classList.toggle('on',editor.isActive('bold'));
+  $('bItal').classList.toggle('on',editor.isActive('italic'));
+  $('bH2').classList.toggle('on',editor.isActive('heading',{level:2}));
+  $('bH3').classList.toggle('on',editor.isActive('heading',{level:3}));
+  $('bUl').classList.toggle('on',editor.isActive('bulletList'));
+  $('bOl').classList.toggle('on',editor.isActive('orderedList'));
+  $('bUndo').disabled=!editor.can().undo();
+  $('bRedo').disabled=!editor.can().redo();
+}
+
+/* ---------------- blokkenmenu ---------------- */
+const BLOCKS={
+  programma:'<h3>Onderdeel: [titel van het onderdeel]</h3>'+
+    '<p><strong>Doel:</strong> [wat leren de deelnemers in dit onderdeel]</p>'+
+    '<p><strong>Relevantie:</strong> [waarom dit aansluit bij de praktijk van de deelnemers]</p>'+
+    '<p><strong>Werkvormen:</strong></p><ul><li>[werkvorm 1]</li><li>[werkvorm 2]</li></ul>',
+  sector:'<div class="highlight-box"><h3>Onze ervaring in uw sector</h3>'+
+    '<p>[Beschrijf hier relevante opdrachten, klanten en resultaten in de sector van de opdrachtgever.]</p></div>',
+  trainer:'<div class="highlight-box"><h3>Uw trainer</h3>'+
+    '<p><strong>[Naam trainer]</strong></p>'+
+    '<p>[Achtergrond, specialisatie en ervaring van de trainer, en waarom deze trainer past bij dit traject.]</p></div>',
+  referentie:'<div class="review-card"><div class="review-quote">"[Citaat van de klant of deelnemer.]"</div>'+
+    '<div class="review-bron">[Naam, organisatie, beoordeling]</div></div>',
+  kader:'<div class="highlight-box-klein"><p>[Korte toelichting of noot.]</p></div>'
+};
+const menu=$('menuBlocks');
+$('bBlocks').addEventListener('click',e=>{ e.stopPropagation(); menu.classList.toggle('open'); });
+document.addEventListener('click',()=>menu.classList.remove('open'));
+menu.querySelectorAll('[data-blk]').forEach(btn=>{
+  btn.addEventListener('click',e=>{
+    e.stopPropagation(); menu.classList.remove('open');
+    editor.chain().focus().insertContent(BLOCKS[btn.getAttribute('data-blk')]).run();
+  });
+});
+
+/* ---------------- paginapreview ---------------- */
+const CONTENT_H=1009;   // 267mm bedrukbaar bij marge 15mm
+const marks=$('pbMarks'), pagecol=$('pagecol'), pageCountEl=$('pageCount');
+let mt=null;
+function scheduleMeasure(){ clearTimeout(mt); mt=setTimeout(measure,350); }
+function outerH(el){
+  const cs=getComputedStyle(el);
+  return el.offsetHeight+parseFloat(cs.marginTop||0)+parseFloat(cs.marginBottom||0);
+}
+function markLine(el,forced,num){
+  const line=document.createElement('div');
+  line.className='pb-line'+(forced?' forced':'');
+  const top=el.getBoundingClientRect().top-pagecol.getBoundingClientRect().top;
+  line.style.top=Math.max(0,top-7)+'px';
+  line.innerHTML='<span>PAGINA '+num+(forced?' · handmatig':'')+'</span>';
+  marks.appendChild(line);
+}
+function measure(){
+  marks.textContent='';
+  const root=document.querySelector('.offerte-mount .ProseMirror');
+  if(!root) return;
+  let page=1, used=0, started=false;
+  const kids=Array.prototype.slice.call(root.children);
+  kids.forEach(el=>{
+    el.classList.remove('ed-overflow');
+    if(el.classList.contains('brief-pagina')){
+      if(el.offsetHeight>CONTENT_H+4) el.classList.add('ed-overflow');
+      page++; used=0; started=false;   // brief = pagina 1, daarna altijd nieuwe pagina
+      return;
+    }
+    if(el.matches('div.nieuwe-pagina[data-pb]')){
+      page++; used=0; started=false;
+      markLine(el,true,page);
+      return;
+    }
+    const h=outerH(el);
+    if(started && used+h>CONTENT_H){
+      page++; used=0; markLine(el,false,page);
+    }
+    used+=h; started=true;
+    if(h>CONTENT_H+4) el.classList.add('ed-overflow');
+  });
+  pageCountEl.textContent=page;
+}
+window.addEventListener('resize',scheduleMeasure);
+if(document.fonts&&document.fonts.ready) document.fonts.ready.then(()=>setTimeout(measure,50));
+setTimeout(measure,400);
+
+/* ---------------- export: ORIG herbouwen met de bewerkingen ---------------- */
+function buildExport(){
+  const edited=editor.getHTML();
+  const doc=new DOMParser().parseFromString(ORIG,'text/html');
+  const off=doc.querySelector('.offerte');
+  off.innerHTML=edited;
+
+  // banner terugzetten in de briefpagina
+  const bp=off.querySelector('.brief-pagina');
+  if(bp&&bannerHTML&&!bp.querySelector('.banner-wrap')) bp.insertAdjacentHTML('afterbegin',bannerHTML);
+
+  // editor-restanten opruimen
+  off.querySelectorAll('[contenteditable]').forEach(n=>n.removeAttribute('contenteditable'));
+  off.querySelectorAll('[spellcheck]').forEach(n=>n.removeAttribute('spellcheck'));
+  off.querySelectorAll('div.nieuwe-pagina[data-pb]').forEach(n=>{ n.removeAttribute('data-pb'); n.innerHTML=''; });
+  off.querySelectorAll('.raw-wrap').forEach(n=>{ // veiligheidsnet, hoort niet voor te komen
+    while(n.firstChild) n.parentNode.insertBefore(n.firstChild,n);
+    n.remove();
+  });
+
+  const html='<!DOCTYPE html>\n'+doc.documentElement.outerHTML;
+  const txt=doc.body?doc.body.textContent:'';
+  const num=(txt.match(/LT-\d{8}-\d{6}/)||[])[0]||(txt.match(/Offertenummer\s*(\d{4,6})/)||[])[1]||'';
+  const cEl=doc.querySelector('.adresblok .links strong, .adresblok .links b');
+  const comp=cEl?cEl.textContent.trim():'';
+  const fname=('Offerte'+(num?'-'+num:'')+(comp?'-'+comp:'')).replace(/[\\/:*?"<>|]+/g,' ').trim()+'.html';
+  return {html,fname};
+}
+$('bSave').addEventListener('click',()=>{
+  const {html,fname}=buildExport();
+  const blob=new Blob([html],{type:'text/html'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download=fname;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
+});
+$('bPrint').addEventListener('click',()=>{
+  const {html}=buildExport();
+  const fr=document.createElement('iframe');
+  fr.style.cssText='position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;';
+  document.body.appendChild(fr);
+  fr.onload=()=>{
+    try{ fr.contentWindow.focus(); fr.contentWindow.print(); }
+    catch(e){ alert('Printen mislukt: '+e.message); }
+    setTimeout(()=>fr.remove(),60000);
+  };
+  fr.srcdoc=html;
+});
+</script>
+</body>
+</html>
